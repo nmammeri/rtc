@@ -290,9 +290,17 @@ impl Flight for Flight4 {
                 }
 
                 let mut pre_master_secret = vec![];
-                if state.is_cipher_suite_psk()
-                    && let Some(local_psk_callback) = &cfg.local_psk_callback
-                {
+                if state.is_cipher_suite_psk() {
+                    let Some(local_psk_callback) = &cfg.local_psk_callback else {
+                        return Err((
+                            Some(Alert {
+                                alert_level: AlertLevel::Fatal,
+                                alert_description: AlertDescription::InternalError,
+                            }),
+                            Some(Error::ErrPskAndIdentityMustBeSetForClient),
+                        ));
+                    };
+
                     let psk = match local_psk_callback(&client_key_exchange.identity_hint) {
                         Ok(psk) => psk,
                         Err(err) => {
