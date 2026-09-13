@@ -180,6 +180,15 @@ impl From<&str> for CipherSuiteId {
 }
 
 impl CipherSuiteId {
+    pub(crate) fn is_psk(self) -> bool {
+        matches!(
+            self,
+            Self::Tls_Psk_With_Aes_128_Ccm
+                | Self::Tls_Psk_With_Aes_128_Ccm_8
+                | Self::Tls_Psk_With_Aes_128_Gcm_Sha256
+        )
+    }
+
     pub(crate) fn supported_by(self, crypto: &dyn RTCCrypto) -> bool {
         let record_algorithm = match self {
             Self::Tls_Ecdhe_Ecdsa_With_Aes_128_Ccm | Self::Tls_Psk_With_Aes_128_Ccm => {

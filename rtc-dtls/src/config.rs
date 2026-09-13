@@ -439,7 +439,9 @@ impl ConfigBuilder {
                 })
             })
             .collect();
-        if self.psk.is_none() && local_signature_schemes.is_empty() {
+
+        let has_non_psk_suites = local_cipher_suites.iter().any(|id| !id.is_psk());
+        if has_non_psk_suites && local_signature_schemes.is_empty() {
             return Err(Error::ErrNoAvailableSignatureSchemes);
         }
 
@@ -453,33 +455,36 @@ impl ConfigBuilder {
                 })
             })
             .collect();
-        if self.psk.is_none() && local_named_curves.is_empty() {
+        if has_non_psk_suites && local_named_curves.is_empty() {
             return Err(Error::ErrNoAvailableCipherSuites);
         }
 
-        if !is_client && self.psk.is_none() {
+        if !is_client && has_non_psk_suites {
             let signing_key = &self.certificates[0].private_key.signing_key;
             local_cipher_suites.retain(|id| {
-                local_signature_schemes.iter().any(|algorithm| {
-                    let signature_family_matches = match id {
-                        CipherSuiteId::Tls_Ecdhe_Rsa_With_Aes_128_Gcm_Sha256
-                        | CipherSuiteId::Tls_Ecdhe_Rsa_With_Aes_256_Cbc_Sha
-                        | CipherSuiteId::Tls_Ecdhe_Rsa_With_ChaCha20_Poly1305_Sha256 => {
-                            algorithm.signature
-                                == crate::signature_hash_algorithm::SignatureAlgorithm::Rsa
-                        }
-                        _ => {
-                            algorithm.signature
-                                == crate::signature_hash_algorithm::SignatureAlgorithm::Ecdsa
-                        }
-                    };
-                    signature_family_matches
-                        && algorithm
-                            .crypto_scheme()
-                            .is_ok_and(|scheme| signing_key.supports(scheme))
-                })
+                id.is_psk()
+                    || local_signature_schemes.iter().any(|algorithm| {
+                        let signature_family_matches =
+                            match id {
+                                CipherSuiteId::Tls_Ecdhe_Rsa_With_Aes_128_Gcm_Sha256
+                                | CipherSuiteId::Tls_Ecdhe_Rsa_With_Aes_256_Cbc_Sha
+                                | CipherSuiteId::Tls_Ecdhe_Rsa_With_ChaCha20_Poly1305_Sha256 => {
+                                    algorithm.signature
+                                        == crate::signature_hash_algorithm::SignatureAlgorithm::Rsa
+                                }
+                                _ => algorithm.signature
+                                    == crate::signature_hash_algorithm::SignatureAlgorithm::Ecdsa,
+                            };
+                        signature_family_matches
+                            && algorithm
+                                .crypto_scheme()
+                                .is_ok_and(|scheme| signing_key.supports(scheme))
+                    })
             });
-            if local_cipher_suites.is_empty() {
+            // A mixed config keeps its psk suites either way, so being left with only those
+            // means the certificate can sign none of the suites offered alongside them.
+            let only_psk_suites_left = local_cipher_suites.iter().all(|id| id.is_psk());
+            if only_psk_suites_left {
                 return Err(Error::ErrNoAvailableCipherSuites);
             }
         }
