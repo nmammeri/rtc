@@ -393,19 +393,30 @@ mod tests {
         client_suite: CipherSuiteId,
         server_suites: &[CipherSuiteId],
     ) -> Result<()> {
-        let client_config = config(client_provider, true, &[client_suite])?;
         let server_config = config(server_provider, false, server_suites)?;
-        let mut client = Endpoint::new(client_addr(), TransportProtocol::UDP, None);
         let mut server = Endpoint::new(server_addr(), TransportProtocol::UDP, Some(server_config));
+        exchange_with_server(&mut server, client_provider, client_addr(), client_suite)
+    }
+
+    /// Drives one client through a handshake and a record exchange against an existing server,
+    /// so several clients can be served by the one endpoint and configuration.
+    fn exchange_with_server(
+        server: &mut Endpoint,
+        client_provider: Arc<dyn RTCCryptoProvider>,
+        client_addr: SocketAddr,
+        client_suite: CipherSuiteId,
+    ) -> Result<()> {
+        let client_config = config(client_provider, true, &[client_suite])?;
+        let mut client = Endpoint::new(client_addr, TransportProtocol::UDP, None);
         client.connect(Instant::now(), server_addr(), client_config, None)?;
 
         let mut client_complete = false;
         let mut server_complete = false;
         for _ in 0..32 {
-            for event in transfer(&mut client, &mut server, client_addr())? {
+            for event in transfer(&mut client, server, client_addr)? {
                 server_complete |= matches!(event, EndpointEvent::HandshakeComplete);
             }
-            for event in transfer(&mut server, &mut client, server_addr())? {
+            for event in transfer(server, &mut client, server_addr())? {
                 client_complete |= matches!(event, EndpointEvent::HandshakeComplete);
             }
             if client_complete && server_complete {
@@ -414,7 +425,7 @@ mod tests {
         }
         assert!(
             client_complete && server_complete,
-            "DTLS handshake did not complete: client {client_suite:?}, server {server_suites:?}"
+            "DTLS handshake did not complete for a {client_suite:?} client"
         );
 
         client.write(Instant::now(), server_addr(), b"provider-backed DTLS")?;
@@ -424,7 +435,7 @@ mod tests {
         let replay = transmit.message.clone();
         let events = server.read(
             Instant::now(),
-            client_addr(),
+            client_addr,
             transmit.transport.ecn,
             transmit.message,
         )?;
@@ -434,7 +445,7 @@ mod tests {
         )));
         assert!(
             server
-                .read(Instant::now(), client_addr(), None, replay)?
+                .read(Instant::now(), client_addr, None, replay)?
                 .is_empty()
         );
         Ok(())
@@ -512,13 +523,12 @@ mod tests {
             CipherSuiteId::Tls_Psk_With_Aes_128_Ccm_8,
         ];
 
-        for client_suite in certificate_and_psk_suites {
-            handshake_and_exchange(
-                provider.clone(),
-                provider.clone(),
-                client_suite,
-                &certificate_and_psk_suites,
-            )?;
+        let server_config = config(provider.clone(), false, &certificate_and_psk_suites)?;
+        let mut server = Endpoint::new(server_addr(), TransportProtocol::UDP, Some(server_config));
+
+        for (index, client_suite) in certificate_and_psk_suites.into_iter().enumerate() {
+            let client_addr = SocketAddr::from(([127, 0, 0, 1], 4446 + index as u16));
+            exchange_with_server(&mut server, provider.clone(), client_addr, client_suite)?;
         }
 
         Ok(())
