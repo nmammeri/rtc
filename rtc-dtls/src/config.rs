@@ -168,8 +168,8 @@ impl ConfigBuilder {
     }
 
     /// certificates contains certificate chain to present to the other side of the connection.
-    /// Server MUST set this if psk is non-nil
-    /// client SHOULD sets this so CertificateRequests can be handled if psk is non-nil
+    /// Server MUST set this if psk is nil, and MAY set it alongside a psk to serve both families
+    /// Client SHOULD set this so CertificateRequests can be handled, and MUST NOT set it with a psk
     pub fn with_certificates(mut self, certificates: Vec<Certificate>) -> Self {
         self.certificates = certificates;
         self
@@ -224,7 +224,8 @@ impl ConfigBuilder {
     }
 
     /// psk sets the pre-shared key used by this DTLS connection
-    /// If psk is non-nil only psk cipher_suites will be used
+    /// A client with a psk offers only psk cipher_suites; a server that also holds certificates
+    /// offers both families and lets the negotiated suite decide which credential it uses
     pub fn with_psk(mut self, psk: Option<PskCallback>) -> Self {
         self.psk = psk;
         self
