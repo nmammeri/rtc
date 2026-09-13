@@ -196,7 +196,7 @@ impl Flight for Flight0 {
         state.remote_epoch = 0;
 
         state.named_curve = DEFAULT_NAMED_CURVE;
-        if !state.is_cipher_suite_psk() {
+        if cfg.local_psk_callback.is_none() {
             state.named_curve = cfg.local_named_curves[0];
         }
         if let Err(error) = state.local_random.populate(cfg.provider().random()) {
