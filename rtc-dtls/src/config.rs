@@ -419,11 +419,13 @@ impl ConfigBuilder {
         })?;
         self.validate(is_client)?;
 
-        let mut local_cipher_suites: Vec<CipherSuiteId> = self
+        // Each id is paired with the suite's own `is_psk`, so the checks below can tell the two
+        // families apart without a second definition of which suites are psk.
+        let mut local_cipher_suites: Vec<(CipherSuiteId, bool)> = self
             .offered_cipher_suites(is_client)?
             .iter()
-            .map(|cs| cs.id())
-            .filter(|id| id.supported_by(crypto_provider.crypto()))
+            .map(|cs| (cs.id(), cs.is_psk()))
+            .filter(|(id, _)| id.supported_by(crypto_provider.crypto()))
             .collect();
         if local_cipher_suites.is_empty() {
             return Err(Error::ErrNoAvailableCipherSuites);
@@ -441,7 +443,7 @@ impl ConfigBuilder {
             })
             .collect();
 
-        let has_non_psk_suites = local_cipher_suites.iter().any(|id| !id.is_psk());
+        let has_non_psk_suites = local_cipher_suites.iter().any(|(_, is_psk)| !is_psk);
         if has_non_psk_suites && local_signature_schemes.is_empty() {
             return Err(Error::ErrNoAvailableSignatureSchemes);
         }
@@ -462,8 +464,8 @@ impl ConfigBuilder {
 
         if !is_client && has_non_psk_suites {
             let signing_key = &self.certificates[0].private_key.signing_key;
-            local_cipher_suites.retain(|id| {
-                id.is_psk()
+            local_cipher_suites.retain(|(id, is_psk)| {
+                *is_psk
                     || local_signature_schemes.iter().any(|algorithm| {
                         let signature_family_matches =
                             match id {
@@ -484,11 +486,14 @@ impl ConfigBuilder {
             });
             // A mixed config keeps its psk suites either way, so being left with only those
             // means the certificate can sign none of the suites offered alongside them.
-            let only_psk_suites_left = local_cipher_suites.iter().all(|id| id.is_psk());
+            let only_psk_suites_left = local_cipher_suites.iter().all(|(_, is_psk)| *is_psk);
             if only_psk_suites_left {
                 return Err(Error::ErrNoAvailableCipherSuites);
             }
         }
+
+        let local_cipher_suites: Vec<CipherSuiteId> =
+            local_cipher_suites.into_iter().map(|(id, _)| id).collect();
 
         let retransmit_interval = if self.flight_interval != Duration::from_secs(0) {
             self.flight_interval
